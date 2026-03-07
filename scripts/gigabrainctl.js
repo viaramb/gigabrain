@@ -9,6 +9,7 @@ import { runMaintenance } from '../lib/core/maintenance-service.js';
 import { runAudit, runAuditRestore, runAuditReport } from '../lib/core/audit-service.js';
 import { ensureProjectionStore, materializeProjectionFromMemories } from '../lib/core/projection-store.js';
 import { captureSnapshotMetrics } from '../lib/core/metrics.js';
+import { buildVaultSurface, inspectVaultHealth, loadSurfaceSummary, syncVaultPull } from '../lib/core/vault-mirror.js';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const THIS_DIR = path.dirname(THIS_FILE);
@@ -24,6 +25,7 @@ Commands:
   audit        Run audit service (--mode shadow|apply|restore)
   inventory    Print current memory inventory metrics
   doctor       Validate config/db + print health checks
+  vault        Build/report/doctor/pull the Obsidian memory surface
 
 Examples:
   node scripts/gigabrainctl.js nightly --config ~/.openclaw/openclaw.json
@@ -31,23 +33,25 @@ Examples:
   node scripts/gigabrainctl.js nightly --skip-harmonize
   node scripts/gigabrainctl.js audit --mode shadow --db ~/.openclaw/gigabrain/memory/registry.sqlite
   node scripts/gigabrainctl.js audit --mode restore --review-version rv-2026-02-22
+  node scripts/gigabrainctl.js vault build --config ~/.openclaw/openclaw.json
+  node scripts/gigabrainctl.js vault pull --host nimbus --remote-path /Users/Nimbus/clawd/obsidian-vault --target ~/Documents/gigabrainvault
 `;
 
 const args = process.argv.slice(2);
 const command = String(args[0] || '').trim().toLowerCase();
 const flags = args.slice(1);
 
-const readFlag = (name, fallback = '') => {
-  const idx = flags.indexOf(name);
-  if (idx !== -1 && flags[idx + 1] && !String(flags[idx + 1]).startsWith('--')) return flags[idx + 1];
-  const withEq = flags.find((item) => String(item || '').startsWith(`${name}=`));
+const readFlag = (name, fallback = '', list = flags) => {
+  const idx = list.indexOf(name);
+  if (idx !== -1 && list[idx + 1] && !String(list[idx + 1]).startsWith('--')) return list[idx + 1];
+  const withEq = list.find((item) => String(item || '').startsWith(`${name}=`));
   if (withEq) return withEq.split('=').slice(1).join('=');
   return fallback;
 };
 
-const readBool = (name, fallback = false) => {
-  if (flags.includes(name)) return true;
-  const withEq = flags.find((item) => String(item || '').startsWith(`${name}=`));
+const readBool = (name, fallback = false, list = flags) => {
+  if (list.includes(name)) return true;
+  const withEq = list.find((item) => String(item || '').startsWith(`${name}=`));
   if (!withEq) return fallback;
   const raw = String(withEq.split('=').slice(1).join('=')).trim().toLowerCase();
   if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
@@ -331,6 +335,12 @@ const commandDoctor = async () => {
       ok: Number(metrics.db.page.free_page_ratio || 0) < 0.2,
       value: Number(metrics.db.page.free_page_ratio || 0),
     });
+    const vaultHealth = inspectVaultHealth({ config, db });
+    checks.push({
+      name: 'vault_surface_ready',
+      ok: config?.vault?.enabled !== true || vaultHealth.manual_protection.ok === true,
+      value: vaultHealth,
+    });
   } finally {
     db.close();
   }
@@ -341,6 +351,87 @@ const commandDoctor = async () => {
     checks,
     metrics,
   }, null, 2));
+};
+
+const commandVault = async () => {
+  const action = String(flags[0] || 'build').trim().toLowerCase();
+  const vaultFlags = flags.slice(1);
+  const configPath = readFlag('--config', '', vaultFlags);
+  const workspaceOverride = readFlag('--workspace', '', vaultFlags);
+  const loaded = loadResolvedConfig({
+    configPath,
+    workspaceRoot: workspaceOverride || undefined,
+  });
+  const config = loaded.config;
+  const dbPath = path.resolve(readFlag('--db', config.runtime.paths.registryPath, vaultFlags));
+
+  if (action === 'build') {
+    const result = buildVaultSurface({
+      dbPath,
+      config,
+      dryRun: readBool('--dry-run', false, vaultFlags),
+      runId: readFlag('--run-id', '', vaultFlags),
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      action: 'vault_build',
+      configPath: loaded.configPath,
+      dbPath,
+      result,
+    }, null, 2));
+    return;
+  }
+
+  if (action === 'doctor') {
+    const health = inspectVaultHealth({ config, dbPath });
+    console.log(JSON.stringify({
+      ok: config?.vault?.enabled !== true || health.manual_protection.ok === true,
+      action: 'vault_doctor',
+      configPath: loaded.configPath,
+      dbPath,
+      health,
+    }, null, 2));
+    return;
+  }
+
+  if (action === 'report') {
+    const loadedSummary = loadSurfaceSummary({ config });
+    const summary = loadedSummary.summary || buildVaultSurface({
+      dbPath,
+      config,
+      dryRun: true,
+      runId: readFlag('--run-id', '', vaultFlags),
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      action: 'vault_report',
+      configPath: loaded.configPath,
+      dbPath,
+      summaryPath: loadedSummary.filePath,
+      summary,
+    }, null, 2));
+    return;
+  }
+
+  if (action === 'pull') {
+    const result = syncVaultPull({
+      host: readFlag('--host', '', vaultFlags),
+      remotePath: readFlag('--remote-path', '', vaultFlags),
+      target: path.resolve(readFlag('--target', config.vault.path, vaultFlags)),
+      subdir: String(config?.vault?.subdir || 'Gigabrain'),
+      manualFolders: Array.isArray(config?.vault?.manualFolders) ? config.vault.manualFolders : ['Inbox', 'Manual'],
+      preserveManual: readBool('--preserve-manual', true, vaultFlags),
+      dryRun: readBool('--dry-run', false, vaultFlags),
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      action: 'vault_pull',
+      result,
+    }, null, 2));
+    return;
+  }
+
+  throw new Error(`Unknown vault action: ${action || '(none)'}`);
 };
 
 const main = async () => {
@@ -366,6 +457,10 @@ const main = async () => {
   }
   if (command === 'doctor') {
     await commandDoctor();
+    return;
+  }
+  if (command === 'vault') {
+    await commandVault();
     return;
   }
   throw new Error(`Unknown command: ${command || '(none)'}`);

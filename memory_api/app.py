@@ -34,6 +34,8 @@ DOC_INDEX_DEBOUNCE_SECONDS = int(os.getenv("GB_DOC_INDEX_DEBOUNCE", "10"))
 DOC_INDEX_TIMEOUT_SECONDS = int(os.getenv("GB_DOC_INDEX_TIMEOUT", "900"))
 DOC_INDEX_LOCK_PATH = os.getenv("GB_DOC_INDEX_LOCK", os.path.join(_home, ".openclaw", "gigabrain", "memory", ".doc-index.lock"))
 GRAPH_PATH = os.getenv("GB_GRAPH_PATH", os.path.join(_home, ".openclaw", "gigabrain", "memory", "graph.json"))
+OUTPUT_DIR = os.getenv("GB_OUTPUT_DIR", os.path.realpath(os.path.join(os.path.dirname(DB_PATH), "..", "output")))
+SURFACE_SUMMARY_PATH = os.getenv("GB_SURFACE_SUMMARY_PATH", os.path.join(OUTPUT_DIR, "memory-surface-summary.json"))
 ALLOW_PRIVATE_URLS = os.getenv("GB_ALLOW_PRIVATE_URLS", "").lower() in ("1", "true", "yes")
 ENABLE_API_DOCS = os.getenv("GB_ENABLE_API_DOCS", "").lower() in ("1", "true", "yes")
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -234,6 +236,60 @@ def _is_within_docs_dir(file_path: str) -> bool:
         return os.path.commonpath([docs_root, target]) == docs_root
     except Exception:
         return False
+
+
+def _default_surface_summary() -> dict:
+    return {
+        "generated_at": None,
+        "active_nodes": 0,
+        "source_files": 0,
+        "counts": {
+            "by_status": {},
+            "by_type": [],
+            "by_scope": [],
+            "by_source_layer": {},
+        },
+        "native_sources": {
+            "total": 0,
+            "last_source_at": None,
+            "last_daily_note_at": None,
+            "items": [],
+        },
+        "review_queue": {
+            "total": 0,
+            "pending": 0,
+            "items": [],
+        },
+        "recent_archives": {
+            "count": 0,
+            "items": [],
+        },
+        "freshness": {
+            "native": {
+                "last_source_at": None,
+                "last_daily_note_at": None,
+                "stale": True,
+                "daily_note_stale": True,
+            },
+            "vault": {
+                "last_built_at": None,
+                "stale": True,
+            },
+            "manual_protection": {
+                "ok": True,
+                "issues": [],
+            },
+        },
+        "reports": {
+            "latest_nightly": {
+                "source_path": "",
+            },
+            "latest_native_sync": {
+                "source_path": "",
+            },
+        },
+        "surface_summary_path": SURFACE_SUMMARY_PATH,
+    }
 
 
 class StrictModel(BaseModel):
@@ -1502,6 +1558,23 @@ def graph(auth: dict = Depends(require_token)):
         return data
     except Exception:
         return {"generated_at": None, "nodes": [], "edges": []}
+
+
+@app.get("/surface")
+def surface(auth: dict = Depends(require_token)):
+    if not _is_admin(auth):
+        raise HTTPException(status_code=403, detail="Surface endpoint requires admin token")
+    if not os.path.exists(SURFACE_SUMMARY_PATH):
+        return _default_surface_summary()
+    try:
+        with open(SURFACE_SUMMARY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return _default_surface_summary()
+        data.setdefault("surface_summary_path", SURFACE_SUMMARY_PATH)
+        return data
+    except Exception:
+        return _default_surface_summary()
 
 
 @app.get("/metrics")

@@ -70,6 +70,40 @@
           "queueOnModelUnavailable": {
             "type": "boolean",
             "default": true
+          },
+          "rememberIntent": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "phrasesBase": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": [
+                  "remember this",
+                  "remember that",
+                  "merk dir",
+                  "note this",
+                  "note that",
+                  "note this down",
+                  "save this",
+                  "save this preference"
+                ]
+              },
+              "writeNative": {
+                "type": "boolean",
+                "default": true
+              },
+              "writeRegistry": {
+                "type": "boolean",
+                "default": true
+              }
+            }
           }
         }
       },
@@ -618,6 +652,92 @@
           "onDemandTemporalDays": {
             "type": "number",
             "default": 3650
+          }
+        }
+      },
+      "nativePromotion": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "promoteFromDaily": {
+            "type": "boolean",
+            "default": true
+          },
+          "promoteFromMemoryMd": {
+            "type": "boolean",
+            "default": true
+          },
+          "minConfidence": {
+            "type": "number",
+            "default": 0.72
+          }
+        }
+      },
+      "vault": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "path": {
+            "type": "string",
+            "default": "obsidian-vault"
+          },
+          "subdir": {
+            "type": "string",
+            "default": "Gigabrain"
+          },
+          "clean": {
+            "type": "boolean",
+            "default": true
+          },
+          "homeNoteName": {
+            "type": "string",
+            "default": "Home"
+          },
+          "exportActiveNodes": {
+            "type": "boolean",
+            "default": true
+          },
+          "exportRecentArchivesLimit": {
+            "type": "number",
+            "default": 200
+          },
+          "manualFolders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "Inbox",
+              "Manual"
+            ]
+          },
+          "views": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          },
+          "reports": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              }
+            }
           }
         }
       },

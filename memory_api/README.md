@@ -5,6 +5,7 @@ Local-only FastAPI dashboard for browsing, editing, and managing the Gigabrain m
 ## Features
 
 - **Memory browser** — search, filter, paginate, edit, confirm/reject memories
+- **Surface landing view** — shared vault summary with freshness, active node counts, source-layer breakdown, review queue, and recent archives
 - **Concept dedup** — group by concept, select duplicates, bulk merge/reject
 - **Audit queue** — review flagged items with reasons, advance through queue
 - **Document store** — add text/URL/file documents, search, delete
@@ -40,6 +41,8 @@ The UI is served at `http://127.0.0.1:7077/`.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `GB_REGISTRY_PATH` | Yes | Path to the Gigabrain SQLite database |
+| `GB_OUTPUT_DIR` | No | Output directory for nightly/vault artifacts (default: sibling `output/` next to the registry) |
+| `GB_SURFACE_SUMMARY_PATH` | No | Path to `memory-surface-summary.json` if you want to override auto-discovery |
 | `GB_DOCS_PATH` | No | Directory for document store files |
 | `GB_DOC_INDEX_AGENT` | No | Agent ID for doc indexing (default: `shared-docs`) |
 | `GB_UI_TOKEN` | Yes | Auth token — all API requests must include `X-GB-Token: <token>` |
@@ -145,6 +148,7 @@ WantedBy=multi-user.target
 | `GET` | `/profile` | Get agent profile |
 | `POST` | `/recall/explain` | Recall with debug info |
 | `GET` | `/graph` | Knowledge graph data |
+| `GET` | `/surface` | Shared Obsidian/web surface summary, including native vs registry source-layer counts |
 | `GET` | `/metrics` | Registry statistics |
 
 Interactive API docs at `/_docs` (Swagger) and `/_redoc` (ReDoc).

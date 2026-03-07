@@ -6,10 +6,11 @@ It is built for local-first production use: SQLite-backed recall, deterministic 
 
 ## What it does
 
-- **Capture**: Extracts structured facts (preferences, decisions, entities, episodes) from conversations and stores them in a SQLite registry
+- **Capture**: Uses a hybrid memory model where explicit remember intent can write concise native markdown and structured registry memories together
 - **Recall**: Before each prompt, searches the registry and native markdown files to inject relevant context the agent "remembers"
 - **Dedupe**: Exact and hybrid semantic deduplication catches duplicates, paraphrases, and malformed near-duplicates with type-aware thresholds
 - **Native sync**: Indexes your workspace `MEMORY.md` and daily notes alongside the registry for unified recall
+- **Obsidian surface**: Builds a structured vault with native files, active memory nodes, reports, and views so Nimbus can expose memory clearly in Obsidian and sync it to another machine
 - **Person service**: Tracks entity mentions across memories for person-aware retrieval ordering
 - **Quality gate**: Junk filters, durable-personal retention bias, plausibility heuristics, and optional LLM second opinion keep memory clean without losing important relationship context
 - **Audit**: Nightly maintenance with snapshots, execution artifacts, archive reports, review queue retention, and quality scoring
@@ -124,13 +125,26 @@ All config lives under `plugins.entries.gigabrain.config` in `openclaw.json`. Th
     "enabled": true,
     "requireMemoryNote": true,
     "minConfidence": 0.65,
-    "minContentChars": 25
+    "minContentChars": 25,
+    "rememberIntent": {
+      "enabled": true,
+      "phrasesBase": ["remember this", "remember that", "merk dir", "note this", "save this"],
+      "writeNative": true,
+      "writeRegistry": true
+    }
   }
 }
 ```
 
 - `requireMemoryNote` — when `true`, only explicit `<memory_note>` tags trigger capture (recommended)
 - `minConfidence` — minimum confidence score to store a memory (0.0–1.0)
+- `rememberIntent` — lets the agent treat natural phrases like `remember that` as an explicit memory-save instruction without exposing the internal `<memory_note>` protocol to the user
+
+Hybrid capture behavior in `v0.4.0`:
+
+- Explicit durable remember intent writes a concise native note and a matching registry memory when the model emits `<memory_note>`
+- Explicit ephemeral remember intent writes to the daily note and stays out of the durable registry by default
+- If the user clearly asked to remember something but the model forgets the internal tag, Gigabrain now queues a review row instead of silently losing the request
 
 ### Recall
 
@@ -215,6 +229,50 @@ Task profiles let you keep one local model family while changing sampling per jo
 
 Indexes workspace markdown files into `memory_native_chunks` for unified recall alongside the registry.
 
+### Native promotion
+
+```json
+{
+  "nativePromotion": {
+    "enabled": true,
+    "promoteFromDaily": true,
+    "promoteFromMemoryMd": true,
+    "minConfidence": 0.72
+  }
+}
+```
+
+Native promotion turns durable native bullets back into structured registry memories with provenance (`source_layer`, `source_path`, `source_line`). This keeps OpenClaw-style native memory first-class while still giving Gigabrain structured recall, dedupe, and archive behavior.
+
+### Obsidian surface (optional)
+
+```json
+{
+  "vault": {
+    "enabled": true,
+    "path": "obsidian-vault",
+    "subdir": "Gigabrain",
+    "clean": true,
+    "homeNoteName": "Home",
+    "exportActiveNodes": true,
+    "exportRecentArchivesLimit": 200,
+    "manualFolders": ["Inbox", "Manual"],
+    "views": { "enabled": true },
+    "reports": { "enabled": true }
+  }
+}
+```
+
+When enabled, Gigabrain builds a read-only Obsidian memory surface under `<vault.path>/<vault.subdir>`:
+
+- `00 Home/` landing note and health summary
+- `10 Native/` mirrored `MEMORY.md`, daily/session notes, and curated native files
+- `20 Nodes/active/` one note per active registry memory with provenance fields like `source_layer`, `source_path`, and `source_line`
+- `30 Views/` dashboards such as Active Memories, Relationships, Review Queue, Recent Archives, Native Sources, Promoted Memories, and Registry-only Memories
+- `40 Reports/` manifest, freshness, latest nightly/native-sync summaries, and the latest vault build summary
+
+`Inbox/` and `Manual/` are reserved human-written folders inside the generated subdir and are never cleaned. The surface is intentionally read-only from Obsidian in `v0.4.0`: Nimbus remains the source of truth, and local sync is a one-way pull.
+
 ### Quality
 
 ```json
@@ -240,7 +298,7 @@ Built-in junk patterns block system prompts, API keys, and benchmark artifacts f
 
 `nightly` now runs a full maintenance pipeline:
 
-`snapshot -> native_sync -> quality_sweep -> exact_dedupe -> semantic_dedupe -> audit_delta -> archive_compression -> vacuum -> metrics_report`
+`snapshot -> native_sync -> quality_sweep -> exact_dedupe -> semantic_dedupe -> audit_delta -> archive_compression -> vacuum -> metrics_report -> vault_build`
 
 Important artifacts written by the run:
 
@@ -248,6 +306,8 @@ Important artifacts written by the run:
 - `output/memory-kept-YYYY-MM-DD.md`
 - `output/memory-archived-or-killed-YYYY-MM-DD.md`
 - `output/memory-review-queue.jsonl`
+- `output/vault-build-YYYY-MM-DD.md`
+- `output/memory-surface-summary.json`
 
 See [`openclaw.plugin.json`](openclaw.plugin.json) for the complete schema with all defaults.
 
@@ -359,11 +419,29 @@ node scripts/gigabrainctl.js inventory
 
 # Health check
 node scripts/gigabrainctl.js doctor
+
+# Build the Obsidian memory surface
+node scripts/gigabrainctl.js vault build --config ~/.openclaw/openclaw.json
+
+# Inspect freshness and manual-folder health
+node scripts/gigabrainctl.js vault doctor --config ~/.openclaw/openclaw.json
+
+# Print the latest surface summary
+node scripts/gigabrainctl.js vault report --config ~/.openclaw/openclaw.json
+
+# Pull the generated surface from Nimbus to a local vault root
+node scripts/gigabrainctl.js vault pull \
+  --host nimbus \
+  --remote-path /Users/Nimbus/clawd/obsidian-vault \
+  --target ~/Documents/gigabrainvault
+
+# Compatibility helper for a direct build
+node scripts/vault-export.js --config ~/.openclaw/openclaw.json
 ```
 
 `nightly --help` is safe and prints usage instead of starting a real run.
 
-All commands are also available as npm scripts: `npm run nightly`, `npm run maintain`, etc.
+All commands are also available as npm scripts: `npm run nightly`, `npm run maintain`, `npm run vault`, `npm run vault:doctor`, `npm run vault:pull`, `npm run vault:export`, etc.
 
 ## HTTP endpoints
 
@@ -383,7 +461,7 @@ Auth uses the `X-GB-Token` header. The token is configured in the gateway.
 
 An optional FastAPI dashboard for browsing and managing memories. See [`memory_api/README.md`](memory_api/README.md) for setup.
 
-Features: memory browser with search/filter, concept deduplication view, audit queue, document store, profile viewer, knowledge graph visualization.
+Features: dual-surface landing view with vault freshness and review/archive summaries, memory browser with search/filter, concept deduplication view, audit queue, document store, profile viewer, and knowledge graph visualization.
 
 ## Testing
 
@@ -398,7 +476,7 @@ npm run test:regression
 npm run test:performance
 ```
 
-The suite includes 12 executable tests covering config validation, policy rules, capture service, person service, LLM routing, native-sync query handling, audit maintenance, migration, bridge routes, native recall, regression behavior, and nightly performance.
+The suite includes 14 executable tests covering config validation, policy rules, capture service, person service, LLM routing, native-sync query handling, vault surface generation and pull, audit maintenance, vault CLI, migration, bridge routes, native recall, regression behavior, and nightly performance.
 
 ## Benchmarking
 
@@ -439,6 +517,7 @@ gigabrain/
 │   ├── audit-service.js        # Quality scoring, review, restore/report flows
 │   ├── maintenance-service.js  # Nightly pipeline, snapshots, execution artifacts
 │   ├── llm-router.js           # LLM provider abstraction + task profiles
+│   ├── vault-mirror.js         # Obsidian memory surface builder + pull workflow
 │   ├── http-routes.js          # Gateway HTTP endpoints
 │   ├── review-queue.js         # Capture and audit review queue retention
 │   └── metrics.js              # Telemetry counters
@@ -446,7 +525,8 @@ gigabrain/
 ├── scripts/                    # CLI tools
 │   ├── gigabrainctl.js         # Main control plane
 │   ├── migrate-v3.js           # Schema migration
-│   └── harmonize-memory.js     # Memory harmonization
+│   ├── harmonize-memory.js     # Memory harmonization
+│   └── vault-export.js         # Direct vault surface build helper
 │
 ├── memory_api/                 # Optional web console (FastAPI)
 │   ├── app.py

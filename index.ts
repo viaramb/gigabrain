@@ -9,6 +9,7 @@ import { ensureEventStore } from './lib/core/event-store.js';
 import { captureFromEvent } from './lib/core/capture-service.js';
 import { recallForQuery } from './lib/core/recall-service.js';
 import { ensureNativeStore, syncNativeMemory } from './lib/core/native-sync.js';
+import { promoteNativeChunks } from './lib/core/native-promotion.js';
 import { ensurePersonStore, rebuildEntityMentions } from './lib/core/person-service.js';
 
 type PluginApi = {
@@ -274,8 +275,14 @@ const gigabrainPlugin = {
         config,
         dryRun: false,
       });
+      const nativePromotion = promoteNativeChunks({
+        db,
+        config,
+        sourcePaths: nativeSync.changed_sources || [],
+        dryRun: false,
+      });
       rebuildEntityMentions(db);
-      logger.info?.(`[gigabrain] native sync changed=${nativeSync.changed_files} inserted=${nativeSync.inserted_chunks}`);
+      logger.info?.(`[gigabrain] native sync changed=${nativeSync.changed_files} inserted=${nativeSync.inserted_chunks} promoted=${nativePromotion.promoted_inserted} linked=${nativePromotion.linked_existing}`);
     });
 
     if (api.registerHttpHandler) {

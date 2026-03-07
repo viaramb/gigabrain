@@ -38,6 +38,9 @@ const seedMemoryCurrent = (db, rows = []) => {
       source: row.source || 'capture',
       source_agent: row.source_agent || 'main',
       source_session: row.source_session || 'sess',
+      source_layer: row.source_layer || 'registry',
+      source_path: row.source_path || null,
+      source_line: row.source_line ?? null,
       confidence: row.confidence ?? 0.6,
       scope: row.scope || 'shared',
       status: row.status || 'active',
@@ -74,6 +77,12 @@ const makeConfigObject = (workspace) => ({
             minConfidence: 0.65,
             minContentChars: 25,
             queueOnModelUnavailable: true,
+            rememberIntent: {
+              enabled: true,
+              phrasesBase: ['remember this', 'remember that', 'merk dir', 'note this', 'note that', 'note this down', 'save this', 'save this preference'],
+              writeNative: true,
+              writeRegistry: true,
+            },
           },
           dedupe: {
             exactEnabled: true,
@@ -178,6 +187,28 @@ const makeConfigObject = (workspace) => ({
             syncMode: 'hybrid',
             maxChunkChars: 900,
             onDemandTemporalDays: 3650,
+          },
+          nativePromotion: {
+            enabled: true,
+            promoteFromDaily: true,
+            promoteFromMemoryMd: true,
+            minConfidence: 0.72,
+          },
+          vault: {
+            enabled: false,
+            path: 'obsidian-vault',
+            subdir: 'Gigabrain',
+            clean: true,
+            homeNoteName: 'Home',
+            exportActiveNodes: true,
+            exportRecentArchivesLimit: 200,
+            manualFolders: ['Inbox', 'Manual'],
+            views: {
+              enabled: true,
+            },
+            reports: {
+              enabled: true,
+            },
           },
           person: {
             keepPublicFacts: true,

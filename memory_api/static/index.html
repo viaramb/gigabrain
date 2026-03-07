@@ -163,6 +163,13 @@
     .panel { display: none; }
     .panel.active { display: block; animation: fadeUp 0.35s ease; }
     .stack { display: flex; flex-direction: column; gap: 12px; }
+    .surface-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .metric-card h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .metric-card .metric-value { font-size: 30px; font-weight: 700; font-family: "Space Grotesk", "IBM Plex Sans", sans-serif; }
+    .metric-card .metric-meta { margin-top: 6px; font-size: 12px; color: var(--muted); }
+    .surface-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; }
+    .surface-list li { line-height: 1.45; }
+    .surface-actions { display: flex; gap: 10px; flex-wrap: wrap; }
     #graph-canvas { height: 600px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
     :root[data-theme="dark"] #graph-canvas { background: #0f141b; }
     @keyframes fadeUp {
@@ -171,7 +178,11 @@
     }
     @media (max-width: 960px) {
       .grid { grid-template-columns: 1fr; }
+      .surface-grid { grid-template-columns: 1fr 1fr; }
       header { gap: 12px; flex-direction: column; align-items: flex-start; }
+    }
+    @media (max-width: 640px) {
+      .surface-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -179,7 +190,8 @@
   <header>
     <h1>🧠 Gigabrain Memory Console</h1>
     <div class="tabs">
-      <button class="tab active" data-tab="memories">Memories</button>
+      <button class="tab active" data-tab="surface">Surface</button>
+      <button class="tab" data-tab="memories">Memories</button>
       <button class="tab" data-tab="agent-profile">Agent Profile</button>
       <button class="tab" data-tab="docs">Docs</button>
       <button class="tab" data-tab="concepts">Concepts</button>
@@ -192,7 +204,68 @@
   </header>
 
   <div class="container">
-    <section id="panel-memories" class="panel active">
+    <section id="panel-surface" class="panel active">
+      <div class="stack">
+        <div class="surface-grid">
+          <div class="card metric-card">
+            <h3>Active Nodes</h3>
+            <div id="surface-active-nodes" class="metric-value">0</div>
+            <div id="surface-active-meta" class="metric-meta">live registry export</div>
+          </div>
+          <div class="card metric-card">
+            <h3>Native Sources</h3>
+            <div id="surface-native-sources" class="metric-value">0</div>
+            <div id="surface-native-meta" class="metric-meta">last source: none</div>
+          </div>
+          <div class="card metric-card">
+            <h3>Review Queue</h3>
+            <div id="surface-review-queue" class="metric-value">0</div>
+            <div id="surface-review-meta" class="metric-meta">pending: 0</div>
+          </div>
+          <div class="card metric-card">
+            <h3>Recent Archives</h3>
+            <div id="surface-archives" class="metric-value">0</div>
+            <div id="surface-archives-meta" class="metric-meta">latest nightly: none</div>
+          </div>
+        </div>
+
+        <div class="card stack">
+          <div class="controls">
+            <button id="surface-refresh" class="btn-primary">Refresh Surface</button>
+            <span id="surface-generated-at" class="muted">generated: unknown</span>
+          </div>
+          <div class="surface-actions">
+            <button id="surface-open-graph" class="btn-ghost">Open Graph</button>
+            <button id="surface-open-audit" class="btn-ghost">Open Audit</button>
+            <button id="surface-open-memories" class="btn-ghost">Open Memories</button>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="card stack">
+            <h3>Freshness</h3>
+            <div id="surface-freshness" class="stack muted"></div>
+          </div>
+          <div class="card stack">
+            <h3>Counts</h3>
+            <div id="surface-counts" class="stack muted"></div>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="card stack">
+            <h3>Review Queue</h3>
+            <ol id="surface-review-list" class="surface-list"></ol>
+          </div>
+          <div class="card stack">
+            <h3>Recent Archives</h3>
+            <ol id="surface-archive-list" class="surface-list"></ol>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-memories" class="panel">
       <div class="grid">
         <div class="card">
           <div class="controls">
@@ -520,6 +593,74 @@ function showPanel(name) {
   document.getElementById(`panel-${name}`).classList.add('active');
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
+}
+
+function renderSurfaceList(targetId, rows, formatter) {
+  const el = document.getElementById(targetId);
+  el.innerHTML = '';
+  if (!Array.isArray(rows) || !rows.length) {
+    el.innerHTML = '<li class="muted">none</li>';
+    return;
+  }
+  rows.forEach((row) => {
+    const li = document.createElement('li');
+    li.innerHTML = formatter(row);
+    el.appendChild(li);
+  });
+}
+
+function renderSurface(data) {
+  const summary = data || {};
+  document.getElementById('surface-active-nodes').textContent = String(summary.active_nodes || 0);
+  document.getElementById('surface-active-meta').textContent = `vault root: ${summary.subdir || 'Gigabrain'}`;
+  document.getElementById('surface-native-sources').textContent = String(summary?.native_sources?.total || 0);
+  document.getElementById('surface-native-meta').textContent = `last source: ${summary?.freshness?.native?.last_source_at || 'none'}`;
+  document.getElementById('surface-review-queue').textContent = String(summary?.review_queue?.total || 0);
+  document.getElementById('surface-review-meta').textContent = `pending: ${summary?.review_queue?.pending || 0}`;
+  document.getElementById('surface-archives').textContent = String(summary?.recent_archives?.count || 0);
+  document.getElementById('surface-archives-meta').textContent = `latest nightly: ${summary?.reports?.latest_nightly?.source_path || 'none'}`;
+  document.getElementById('surface-generated-at').textContent = `generated: ${summary.generated_at || 'unknown'}`;
+
+  const freshness = document.getElementById('surface-freshness');
+  const manualIssues = summary?.freshness?.manual_protection?.issues || [];
+  freshness.innerHTML = [
+    `<div>native source last seen: ${escapeHtml(summary?.freshness?.native?.last_source_at || 'none')}</div>`,
+    `<div>daily note last seen: ${escapeHtml(summary?.freshness?.native?.last_daily_note_at || 'none')}</div>`,
+    `<div>native stale: ${escapeHtml(String(summary?.freshness?.native?.stale ?? true))}</div>`,
+    `<div>daily stale: ${escapeHtml(String(summary?.freshness?.native?.daily_note_stale ?? true))}</div>`,
+    `<div>vault stale: ${escapeHtml(String(summary?.freshness?.vault?.stale ?? true))}</div>`,
+    `<div>manual protection ok: ${escapeHtml(String(summary?.freshness?.manual_protection?.ok ?? true))}</div>`,
+    manualIssues.length ? `<div>manual issues: ${escapeHtml(manualIssues.join(', '))}</div>` : ''
+  ].filter(Boolean).join('');
+
+  const counts = document.getElementById('surface-counts');
+  const byStatus = summary?.counts?.by_status || {};
+  const byType = Array.isArray(summary?.counts?.by_type) ? summary.counts.by_type : [];
+  const byScope = Array.isArray(summary?.counts?.by_scope) ? summary.counts.by_scope : [];
+  const bySourceLayer = summary?.counts?.by_source_layer || {};
+  counts.innerHTML = [
+    `<div>status: ${escapeHtml(JSON.stringify(byStatus))}</div>`,
+    `<div>top types: ${escapeHtml(byType.slice(0, 4).map(item => `${item.value}:${item.count}`).join(', ') || 'none')}</div>`,
+    `<div>top scopes: ${escapeHtml(byScope.slice(0, 4).map(item => `${item.value}:${item.count}`).join(', ') || 'none')}</div>`,
+    `<div>source layers: ${escapeHtml(Object.entries(bySourceLayer).map(([key, value]) => `${key}:${value}`).join(', ') || 'none')}</div>`,
+  ].join('');
+
+  renderSurfaceList('surface-review-list', summary?.review_queue?.items || [], (row) => {
+    const reason = row.reason || row.reason_code || 'queue';
+    const memoryId = row.memory_id || 'unknown';
+    return `${escapeHtml(reason)} · ${escapeHtml(memoryId)}`;
+  });
+
+  renderSurfaceList('surface-archive-list', summary?.recent_archives?.items || [], (row) => {
+    const reasons = Array.isArray(row.reason_codes) ? row.reason_codes.join(', ') : '';
+    return `${escapeHtml(row.type || 'ARCHIVE')} · ${escapeHtml((row.content || '').slice(0, 96))}${reasons ? ` <span class="muted">(${escapeHtml(reasons)})</span>` : ''}`;
+  });
+}
+
+async function fetchSurface() {
+  const res = await fetch(api('/surface'), { headers: authHeaders() });
+  const data = await res.json();
+  renderSurface(data);
 }
 
 // Memories
@@ -1175,6 +1316,7 @@ Array.from(document.querySelectorAll('.tab')).forEach(btn => {
   btn.onclick = () => {
     const tab = btn.dataset.tab;
     showPanel(tab);
+    if (tab === 'surface') fetchSurface();
     if (tab === 'memories') fetchMemories();
     if (tab === 'agent-profile') fetchProfileMemories();
     if (tab === 'docs') fetchDocs();
@@ -1185,6 +1327,19 @@ Array.from(document.querySelectorAll('.tab')).forEach(btn => {
   };
 });
 
+document.getElementById('surface-refresh').onclick = fetchSurface;
+document.getElementById('surface-open-graph').onclick = () => {
+  showPanel('graph');
+  fetchGraph();
+};
+document.getElementById('surface-open-audit').onclick = () => {
+  showPanel('audit');
+  fetchAudit();
+};
+document.getElementById('surface-open-memories').onclick = () => {
+  showPanel('memories');
+  fetchMemories();
+};
 document.getElementById('mem-refresh').onclick = fetchMemories;
 document.getElementById('mem-prev').onclick = () => {
   memOffset = Math.max(0, memOffset - memLimit);
@@ -1327,7 +1482,7 @@ window.addEventListener('resize', () => {
 });
 
 initTheme();
-fetchMemories();
+fetchSurface();
 </script>
 </body>
 </html>

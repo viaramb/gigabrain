@@ -1,6 +1,6 @@
 {
     "name": "@legendaryvibecoder/gigabrain",
-    "version": "0.3.2",
+    "version": "0.4.0",
     "type": "module",
     "description": "Standalone OpenClaw memory plugin — capture, recall, dedupe, audit, native sync",
     "author": "Legendary Vibecoder",
@@ -28,8 +28,12 @@
         "audit": "node scripts/gigabrainctl.js audit --mode shadow",
         "inventory": "node scripts/gigabrainctl.js inventory",
         "doctor": "node scripts/gigabrainctl.js doctor",
+        "vault": "node scripts/gigabrainctl.js vault build",
+        "vault:doctor": "node scripts/gigabrainctl.js vault doctor",
+        "vault:pull": "node scripts/gigabrainctl.js vault pull",
         "migrate:v3": "node scripts/migrate-v3.js",
-        "harmonize": "node scripts/harmonize-memory.js"
+        "harmonize": "node scripts/harmonize-memory.js",
+        "vault:export": "node scripts/vault-export.js"
     },
     "keywords": [
         "openclaw",

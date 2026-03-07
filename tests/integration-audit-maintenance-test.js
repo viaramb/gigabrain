@@ -9,6 +9,12 @@ import { openDb, makeConfigObject, makeTempWorkspace, seedMemoryCurrent, getStat
 const run = async () => {
   const ws = makeTempWorkspace('gb-v3-int-maintain-');
   const openclaw = makeConfigObject(ws.workspace);
+  openclaw.plugins.entries.gigabrain.config.vault = {
+    enabled: true,
+    path: 'obsidian-vault',
+    subdir: 'Gigabrain',
+    clean: true,
+  };
   const config = normalizeConfig(openclaw.plugins.entries.gigabrain.config);
 
   const db = openDb(ws.dbPath);
@@ -41,6 +47,26 @@ const run = async () => {
   assertFileExists(maintain.artifacts.archivedOrKilledCsvPath, 'archived/killed csv');
   assertFileExists(maintain.artifacts.keptMdPath, 'kept md');
   assertFileExists(maintain.artifacts.executionArtifactPath, 'nightly execution artifact');
+  assertFileExists(maintain.artifacts.vaultBuildReportPath, 'vault build report');
+  assertFileExists(maintain.artifacts.surfaceSummaryPath, 'surface summary');
+  assertFileExists(path.join(config.vault.path, config.vault.subdir, 'vault-index.md'), 'vault index');
+  assertFileExists(path.join(config.vault.path, config.vault.subdir, '00 Home', 'Home.md'), 'vault home note');
+  assertFileExists(path.join(config.vault.path, config.vault.subdir, '40 Reports', 'vault-manifest.json'), 'vault manifest');
+
+  const maintainDryRun = runMaintenance({
+    dbPath: ws.dbPath,
+    config,
+    dryRun: true,
+    reviewVersion: 'rv-maintain-int-dry-run',
+    runId: 'run-maintain-int-dry-run',
+  });
+  assert.equal(maintainDryRun.ok, true);
+  assert.equal(maintainDryRun.artifacts.executionArtifactPath.includes(`${path.sep}output${path.sep}previews${path.sep}`), true, 'dry-run execution artifact should live under output/previews');
+  assert.equal(maintainDryRun.artifacts.nativeSyncReportPath.includes(`${path.sep}output${path.sep}previews${path.sep}`), true, 'dry-run native sync report should live under output/previews');
+  assert.equal(maintainDryRun.artifacts.archivedOrKilledJsonlPath.includes(`${path.sep}output${path.sep}previews${path.sep}`), true, 'dry-run archive artifact should live under output/previews');
+  assert.equal(maintainDryRun.artifacts.keptMdPath.includes(`${path.sep}output${path.sep}previews${path.sep}`), true, 'dry-run kept artifact should live under output/previews');
+  assert.equal(maintainDryRun.artifacts.vaultBuildReportPath.includes(`${path.sep}output${path.sep}previews${path.sep}`), true, 'dry-run vault build report should live under output/previews');
+  assert.equal(maintainDryRun.artifacts.surfaceSummaryPath, '', 'dry-run should not publish a shared surface summary artifact');
 
   const auditVersion = 'rv-audit-apply-int';
   const dbBeforeApply = openDb(ws.dbPath);
