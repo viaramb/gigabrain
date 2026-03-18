@@ -6,9 +6,10 @@ import { spawnSync } from 'node:child_process';
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
-const runSetup = ({ projectRoot, homeRoot }) => spawnSync('node', [
+const runSetup = ({ projectRoot, homeRoot, extraArgs = [] }) => spawnSync('node', [
   'scripts/gigabrain-codex-setup.js',
   '--project-root', projectRoot,
+  ...extraArgs,
 ], {
   cwd: repoRoot,
   encoding: 'utf8',
@@ -74,6 +75,8 @@ const run = async () => {
   assert.equal(agents.includes(summary.projectScope), true, 'AGENTS block should teach the repo-specific scope');
   assert.equal(agents.includes('target: "user"'), true, 'AGENTS block should teach personal-memory targeting');
   assert.equal(agents.includes('target: "project"'), true, 'AGENTS block should teach repo-memory targeting');
+  assert.equal(agents.includes('Prefer Gigabrain MCP tools over direct CLI writes whenever the MCP server is available.'), true, 'AGENTS block should explicitly prefer MCP over raw CLI writes');
+  assert.equal(agents.includes('node ~/.npm/_npx/.../scripts/gigabrainctl.js'), true, 'AGENTS block should explicitly forbid ephemeral npx cache paths');
 
   const verify = spawnSync(path.join(projectRoot, '.codex', 'actions', 'verify-gigabrain.sh'), [], {
     cwd: projectRoot,
@@ -97,6 +100,11 @@ const run = async () => {
   const verifyScript = fs.readFileSync(path.join(projectRoot, '.codex', 'actions', 'verify-gigabrain.sh'), 'utf8');
   assert.equal(verifyScript.includes('node_modules/.bin/$tool'), true, 'verify action should prefer repo-local binaries through the shared helper resolver');
   assert.equal(verifyScript.includes('npx --no-install "$tool"'), true, 'verify action should fall back to npx without reinstalling');
+  assert.equal(verifyScript.includes('npx --yes --package "$PACKAGE_SPEC" "$tool"'), true, 'verify action should include a durable package-spec npx fallback');
+
+  assert.equal(Array.isArray(summary.nextSteps), true, 'setup should print next steps');
+  assert.equal(summary.nextSteps.some((step) => String(step).includes('Use Gigabrain through MCP first once it is registered in Codex.')), true, 'setup next steps should explicitly prefer MCP first');
+  assert.equal(summary.nextSteps.some((step) => String(step).includes('node ~/.npm/_npx/.../scripts/gigabrainctl.js')), true, 'setup next steps should explicitly warn against ephemeral npx cache paths');
 
   const checkpoint = spawnSync(path.join(projectRoot, '.codex', 'actions', 'checkpoint-gigabrain-session.sh'), [
     '--summary', 'Implemented the Codex App checkpoint workflow.',
@@ -140,6 +148,26 @@ const run = async () => {
   assert.deepEqual(migratedConfig.codex.recallOrder, ['project', 'user', 'remote'], 'setup rerun should migrate recall order to include the personal store');
   assert.equal(fs.existsSync(checkpointResult.source_path), true, 'setup rerun should preserve previously written native project memory');
   assert.equal(rerunSummary.standalonePathKind, 'canonical', 'setup rerun should keep using the canonical standalone path');
+
+  const malformedRoot = fs.mkdtempSync(path.join(root, 'malformed-'));
+  const malformedProject = path.join(malformedRoot, 'project');
+  fs.mkdirSync(malformedProject, { recursive: true });
+  fs.writeFileSync(path.join(malformedProject, 'package.json'), '{"name":"malformed-codex","private":true}\n', 'utf8');
+  const malformedConfigPath = path.join(malformedRoot, 'store', 'config.json');
+  fs.mkdirSync(path.dirname(malformedConfigPath), { recursive: true });
+  fs.writeFileSync(malformedConfigPath, '{broken json', 'utf8');
+  const malformedRun = runSetup({
+    projectRoot: malformedProject,
+    homeRoot,
+    extraArgs: ['--config', malformedConfigPath],
+  });
+  assert.notEqual(malformedRun.status, 0, 'setup should fail closed when an existing standalone config is malformed');
+  assert.match(
+    malformedRun.stderr || malformedRun.stdout,
+    /Invalid JSON in standalone Gigabrain config/i,
+    'setup should explain malformed standalone config files instead of overwriting them',
+  );
+  assert.equal(fs.readFileSync(malformedConfigPath, 'utf8'), '{broken json', 'setup should leave malformed config files untouched when it aborts');
 };
 
 export { run };

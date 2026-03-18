@@ -6,9 +6,10 @@ import { spawnSync } from 'node:child_process';
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
-const runClaudeSetup = ({ projectRoot, homeRoot }) => spawnSync('node', [
+const runClaudeSetup = ({ projectRoot, homeRoot, extraArgs = [] }) => spawnSync('node', [
   'scripts/gigabrain-claude-setup.js',
   '--project-root', projectRoot,
+  ...extraArgs,
 ], {
   cwd: repoRoot,
   encoding: 'utf8',
@@ -78,6 +79,8 @@ const run = async () => {
   assert.equal(claudeMd.includes(summary.projectScope), true, 'CLAUDE.md should include the repo-specific scope');
   assert.equal(claudeMd.includes('target: "user"'), true, 'CLAUDE.md should teach personal-memory targeting');
   assert.equal(claudeMd.includes('target: "project"'), true, 'CLAUDE.md should teach repo-memory targeting');
+  assert.equal(claudeMd.includes('Prefer Gigabrain MCP tools over direct CLI writes whenever the MCP server is available.'), true, 'CLAUDE.md should explicitly prefer MCP over raw CLI writes');
+  assert.equal(claudeMd.includes('node ~/.npm/_npx/.../scripts/gigabrainctl.js'), true, 'CLAUDE.md should explicitly forbid ephemeral npx cache paths');
 
   const mcp = readJson(path.join(projectRoot, '.mcp.json'));
   assert.equal(typeof mcp.mcpServers, 'object', 'Claude mcp config should define mcpServers');
@@ -102,6 +105,10 @@ const run = async () => {
   const verifyScript = fs.readFileSync(path.join(projectRoot, '.claude', 'actions', 'verify-gigabrain.sh'), 'utf8');
   assert.equal(verifyScript.includes('node_modules/.bin/$tool'), true, 'claude verify action should prefer repo-local binaries through the shared helper resolver');
   assert.equal(verifyScript.includes('npx --no-install "$tool"'), true, 'claude verify action should fall back to npx without reinstalling');
+  assert.equal(verifyScript.includes('npx --yes --package "$PACKAGE_SPEC" "$tool"'), true, 'claude verify action should include a durable package-spec npx fallback');
+  assert.equal(Array.isArray(summary.nextSteps), true, 'claude setup should print next steps');
+  assert.equal(summary.nextSteps.some((step) => String(step).includes('Use Gigabrain through MCP first once Claude is reading the local launcher.')), true, 'claude setup next steps should explicitly prefer MCP first');
+  assert.equal(summary.nextSteps.some((step) => String(step).includes('node ~/.npm/_npx/.../scripts/gigabrainctl.js')), true, 'claude setup next steps should explicitly warn against ephemeral npx cache paths');
 
   const checkpoint = spawnSync(path.join(projectRoot, '.claude', 'actions', 'checkpoint-gigabrain-session.sh'), [
     '--summary', 'Implemented Claude Desktop MCP support.',
@@ -176,6 +183,26 @@ const run = async () => {
   assert.equal(claudeThenCodexSummary.standaloneConfigPath, path.join(sharedStoreRoot, 'config.json'), 'claude then codex should continue using the same shared standalone config');
   assert.equal(fs.existsSync(path.join(claudeFirstProject, 'CLAUDE.md')), true, 'claude then codex should preserve CLAUDE.md');
   assert.equal(fs.existsSync(path.join(claudeFirstProject, '.codex', 'actions', 'verify-gigabrain.sh')), true, 'claude then codex should add Codex actions');
+
+  const malformedRoot = fs.mkdtempSync(path.join(root, 'malformed-'));
+  const malformedProject = path.join(malformedRoot, 'project');
+  fs.mkdirSync(malformedProject, { recursive: true });
+  fs.writeFileSync(path.join(malformedProject, 'package.json'), '{"name":"malformed-claude","private":true}\n', 'utf8');
+  const malformedConfigPath = path.join(malformedRoot, 'store', 'config.json');
+  fs.mkdirSync(path.dirname(malformedConfigPath), { recursive: true });
+  fs.writeFileSync(malformedConfigPath, '{broken json', 'utf8');
+  const malformedRun = runClaudeSetup({
+    projectRoot: malformedProject,
+    homeRoot,
+    extraArgs: ['--config', malformedConfigPath],
+  });
+  assert.notEqual(malformedRun.status, 0, 'claude setup should fail closed when an existing standalone config is malformed');
+  assert.match(
+    malformedRun.stderr || malformedRun.stdout,
+    /Invalid JSON in standalone Gigabrain config/i,
+    'claude setup should explain malformed standalone config files instead of overwriting them',
+  );
+  assert.equal(fs.readFileSync(malformedConfigPath, 'utf8'), '{broken json', 'claude setup should leave malformed config files untouched when it aborts');
 };
 
 export { run };
